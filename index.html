@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="blog drop">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon.png">
+<title>blog drop</title>
+<style>
+body { margin: 0; display: flex; min-height: 100vh; }
+@media (max-width: 700px) { body { flex-direction: column; } }
+.zone { flex: 1; padding: 2rem; box-sizing: border-box; }
+.zone.over { outline: 4px dashed currentColor; outline-offset: -12px; }
+textarea { width: 100%; min-height: 14rem; box-sizing: border-box;
+  font: inherit; font-size: 1rem; background: inherit; color: inherit;
+  border: 1px solid currentColor; padding: 0.5rem; }
+input { font: inherit; font-size: 1rem; background: inherit; color: inherit;
+  border: 1px solid currentColor; padding: 0.3rem 0.5rem; width: 100%;
+  box-sizing: border-box; margin-top: 0.5rem; }
+button { font: inherit; font-size: 1rem; margin-top: 0.5rem;
+  padding: 0.3rem 1.2rem; cursor: pointer; background: inherit;
+  color: inherit; border: 1px solid currentColor; }
+.status { margin-top: 0.75rem; white-space: pre-wrap; }
+.hint { opacity: 0.65; }
+#token-box { margin-top: 3rem; font-size: 0.85rem; }
+#token-box.ok input, #token-box.ok button { display: none; }
+
+#foid { background: #000; color: #fff; font-family: Georgia, serif; }
+#foid h1 { font-family: Helvetica, Arial, sans-serif; font-weight: 900;
+  font-size: 2.6rem; margin: 0 0 0.5rem; }
+#foid a { color: #fff; }
+
+#fringe { background: #fff; color: #000; }
+#fringe h1 { font-weight: normal; font-size: 2.6rem; margin: 0 0 0.5rem;
+  display: inline-block; background: #9DFF20; padding: 0 0.2em; }
+#fringe a { color: #000; text-decoration-color: #9DFF20;
+  text-decoration-thickness: 2px; }
+#fringe a:hover { background: #9DFF20; }
+</style>
+</head>
+<body>
+
+<div class="zone" id="foid">
+<h1>FOID REPORT</h1>
+<p class="hint">write it, hit post. or drop a .txt / .md on this half.</p>
+<textarea></textarea>
+<button>post</button>
+<p class="status"></p>
+</div>
+
+<div class="zone" id="fringe">
+<h1>fringe report</h1>
+<p class="hint">write it, hit post. or drop a .txt / .md on this half.</p>
+<textarea></textarea>
+<input placeholder="tags, comma separated (optional)" data-field="tags">
+<input placeholder="title (optional)" data-field="title">
+<button>post</button>
+<p class="status"></p>
+<div id="token-box" class="hint">
+<span id="token-state">needs a github token to post.</span>
+<input id="token-input" placeholder="paste fine-grained token (contents read/write on the two blog repos)">
+<button id="token-save">save</button>
+<a href="#" id="token-clear" style="display:none; margin-left:0.5em">sign out</a>
+</div>
+</div>
+
+<script>
+const DEFAULT_SITES = {
+  foid:   { repo: 'bonecondor/foid-report',   url: 'https://foid.report',   lower: false },
+  fringe: { repo: 'bonecondor/fringe-report', url: 'https://fringe.report', lower: true  },
+};
+// test override: localStorage.setItem('drop_repos', JSON.stringify({...}))
+const SITES = JSON.parse(localStorage.getItem('drop_repos') || 'null') || DEFAULT_SITES;
+
+function token() { return localStorage.getItem('drop_token') || ''; }
+
+function b64(s) {
+  const bytes = new TextEncoder().encode(s);
+  let bin = '';
+  bytes.forEach(c => bin += String.fromCharCode(c));
+  return btoa(bin);
+}
+
+async function gh(method, path, body) {
+  const r = await fetch('https://api.github.com/' + path, {
+    method,
+    headers: {
+      'Authorization': 'Bearer ' + token(),
+      'Accept': 'application/vnd.github+json',
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (r.status === 404 && method === 'GET') return null;
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(r.status + ': ' + (data.message || 'github said no'));
+  return data;
+}
+
+function two(n) { return String(n).padStart(2, '0'); }
+
+function timeStr(now, lower) {
+  const h = now.getHours() % 12 || 12;
+  const ap = now.getHours() < 12 ? 'AM' : 'PM';
+  const s = h + ':' + two(now.getMinutes()) + ' ' + ap;
+  return lower ? s.toLowerCase() : s;
+}
+
+function pickSlug(existing, origName, now) {
+  const today = now.getFullYear() + '-' + two(now.getMonth() + 1) + '-' + two(now.getDate());
+  const stem = (origName || '').replace(/\.[^.]*$/, '');
+  let candidate;
+  if (stem && /^\d{4}-\d{2}-\d{2}/.test(stem)) candidate = stem;
+  else if (stem) {
+    const words = stem.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    candidate = words ? today + '-' + words : today;
+  } else candidate = today;
+  if (!existing.has(candidate + '.md')) return candidate;
+  candidate = today + '-' + two(now.getHours()) + two(now.getMinutes());
+  let slug = candidate, n = 2;
+  while (existing.has(slug + '.md')) slug = candidate + '-' + n++;
+  return slug;
+}
+
+function compose(text, title, tags, time) {
+  const meta = {};
+  const fm = text.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
+  if (fm) {
+    fm[1].split('\n').forEach(line => {
+      const i = line.indexOf(':');
+      if (i > 0) meta[line.slice(0, i).trim().toLowerCase()] = line.slice(i + 1).trim();
+    });
+    text = text.slice(fm[0].length);
+  }
+  if (title) meta.title = title;
+  if (tags) meta.tags = tags;
+  if (!meta.time) meta.time = time;
+  const lines = Object.entries(meta).map(([k, v]) => k + ': ' + v).join('\n');
+  return '---\n' + lines + '\n---\n\n' + text.trim() + '\n';
+}
+
+function wire(siteKey) {
+  const site = SITES[siteKey];
+  const zone = document.getElementById(siteKey);
+  const ta = zone.querySelector('textarea');
+  const status = zone.querySelector('.status');
+  const fields = {};
+  zone.querySelectorAll('input[data-field]').forEach(i => fields[i.dataset.field] = i);
+  let lastSlug = null;
+
+  function show(msg, undoable) {
+    status.innerHTML = '';
+    status.append(msg instanceof Node ? msg : document.createTextNode(msg));
+    if (undoable && lastSlug) {
+      const u = document.createElement('a');
+      u.textContent = 'undo';
+      u.href = '#';
+      u.style.marginLeft = '1em';
+      u.onclick = e => { e.preventDefault(); undo(); };
+      status.append(u);
+    }
+  }
+
+  async function publish(text, origName) {
+    if (!token()) { show('needs the github token first — box at the bottom.'); return false; }
+    if (!text.trim()) { show('empty post'); return false; }
+    show('posting…');
+    try {
+      const now = new Date();
+      const listing = await gh('GET', 'repos/' + site.repo + '/contents/posts') || [];
+      const existing = new Set(listing.map(f => f.name));
+      const slug = pickSlug(existing, origName, now);
+      const body = compose(text, fields.title ? fields.title.value.trim() : '',
+                           fields.tags ? fields.tags.value.trim() : '',
+                           timeStr(now, site.lower));
+      await gh('PUT', 'repos/' + site.repo + '/contents/posts/' + slug + '.md',
+               { message: 'post: ' + slug, content: b64(body) });
+      lastSlug = slug;
+      const link = document.createElement('a');
+      link.href = site.url;
+      link.target = '_blank';
+      link.textContent = site.url.replace('https://', '');
+      const wrap = document.createElement('span');
+      wrap.append('posted (' + slug + ') — building, live in ~2 min at ', link);
+      show(wrap, true);
+      ta.value = '';
+      Object.values(fields).forEach(f => f.value = '');
+      return true;
+    } catch (e) { show('failed: ' + e.message); return false; }
+  }
+
+  async function undo() {
+    show('undoing…');
+    try {
+      const slug = lastSlug;
+      const file = await gh('GET', 'repos/' + site.repo + '/contents/posts/' + slug + '.md');
+      if (!file) throw new Error('post not found');
+      let draft = 'drafts/' + slug + '.md', n = 2;
+      while (await gh('GET', 'repos/' + site.repo + '/contents/' + draft))
+        draft = 'drafts/' + slug + '-' + n++ + '.md';
+      await gh('PUT', 'repos/' + site.repo + '/contents/' + draft,
+               { message: 'unpost: ' + slug + ' (moved to drafts)', content: file.content.replace(/\n/g, '') });
+      await gh('DELETE', 'repos/' + site.repo + '/contents/posts/' + slug + '.md',
+               { message: 'unpost: ' + slug + ' (removed from posts)', sha: file.sha });
+      show('moved ' + slug + ' to drafts/ — rebuilding without it');
+      lastSlug = null;
+    } catch (e) { show('failed: ' + e.message); }
+  }
+
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('over'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('over'));
+  zone.addEventListener('drop', async e => {
+    e.preventDefault();
+    zone.classList.remove('over');
+    const files = [...e.dataTransfer.files];
+    if (files.length) {
+      for (const f of files) {
+        if (!await publish(await f.text(), f.name)) break;
+      }
+    } else {
+      const text = e.dataTransfer.getData('text/plain');
+      if (text) ta.value = (ta.value ? ta.value + '\n\n' : '') + text;
+    }
+  });
+  zone.querySelector('button').onclick = () => publish(ta.value, '');
+}
+
+wire('foid');
+wire('fringe');
+
+const box = document.getElementById('token-box');
+const state = document.getElementById('token-state');
+const clearLink = document.getElementById('token-clear');
+function refreshToken() {
+  const has = !!token();
+  box.classList.toggle('ok', has);
+  state.textContent = has ? 'signed in.' : 'needs a github token to post.';
+  clearLink.style.display = has ? 'inline' : 'none';
+}
+document.getElementById('token-save').onclick = () => {
+  const v = document.getElementById('token-input').value.trim();
+  if (v) { localStorage.setItem('drop_token', v); document.getElementById('token-input').value = ''; refreshToken(); }
+};
+clearLink.onclick = e => { e.preventDefault(); localStorage.removeItem('drop_token'); refreshToken(); };
+refreshToken();
+</script>
+</body>
+</html>

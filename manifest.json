@@ -1,0 +1,8 @@
+{
+  "name": "blog drop",
+  "display": "standalone",
+  "start_url": ".",
+  "background_color": "#ffffff",
+  "theme_color": "#9DFF20",
+  "icons": [{ "src": "icon.png", "sizes": "512x512", "type": "image/png" }]
+}
