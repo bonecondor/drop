@@ -183,7 +183,7 @@ function wire(siteKey) {
       link.target = '_blank';
       link.textContent = site.url.replace('https://', '');
       const wrap = document.createElement('span');
-      wrap.append('posted (' + slug + ') — building, live in ~2 min at ', link);
+      wrap.append('posted (' + slug + ') — deploying to ', link, ' (usually a minute or two, sometimes longer)');
       show(wrap, true);
       ta.value = '';
       Object.values(fields).forEach(f => f.value = '');
