@@ -150,6 +150,25 @@ function wire(siteKey) {
   zone.querySelectorAll('input[data-field]').forEach(i => fields[i.dataset.field] = i);
   let lastSlug = null;
 
+  // Draft autosave — survives closed tabs, phone restarts, failed posts.
+  // Cleared only after a confirmed successful post.
+  const draftKey = 'drop_draft_' + siteKey;
+  try {
+    const saved = JSON.parse(localStorage.getItem(draftKey) || 'null');
+    if (saved) {
+      if (!ta.value) ta.value = saved.text || '';
+      Object.entries(fields).forEach(([k, f]) => { if (!f.value) f.value = saved[k] || ''; });
+    }
+  } catch (e) {}
+  function stash() {
+    const data = { text: ta.value };
+    Object.entries(fields).forEach(([k, f]) => data[k] = f.value);
+    if (Object.values(data).some(v => v)) localStorage.setItem(draftKey, JSON.stringify(data));
+    else localStorage.removeItem(draftKey);
+  }
+  ta.addEventListener('input', stash);
+  Object.values(fields).forEach(f => f.addEventListener('input', stash));
+
   function show(msg, undoable) {
     status.innerHTML = '';
     status.append(msg instanceof Node ? msg : document.createTextNode(msg));
@@ -187,6 +206,7 @@ function wire(siteKey) {
       show(wrap, true);
       ta.value = '';
       Object.values(fields).forEach(f => f.value = '');
+      localStorage.removeItem(draftKey);
       return true;
     } catch (e) { show('failed: ' + e.message); return false; }
   }
