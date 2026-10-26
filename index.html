@@ -90,6 +90,9 @@ const DEFAULT_SITES = {
 // test override: localStorage.setItem('drop_repos', JSON.stringify({...}))
 const SITES = { ...DEFAULT_SITES, ...JSON.parse(localStorage.getItem('drop_repos') || 'null') };
 
+// sign commits with the private noreply address; without this GitHub uses the account email
+const AUTHOR = { name: 'Bird', email: '220778091+bonecondor@users.noreply.github.com' };
+
 function token() { return localStorage.getItem('drop_token') || ''; }
 
 function b64(s) {
@@ -214,7 +217,7 @@ function wire(siteKey) {
                            site.noTime ? '' : timeStr(now, site.lower),
                            fields.dek ? fields.dek.value.trim() : '');
       await gh('PUT', 'repos/' + site.repo + '/contents/posts/' + slug + '.md',
-               { message: 'post: ' + slug, content: b64(body) });
+               { message: 'post: ' + slug, content: b64(body), author: AUTHOR, committer: AUTHOR });
       lastSlug = slug;
       const link = document.createElement('a');
       link.href = site.url;
@@ -240,9 +243,9 @@ function wire(siteKey) {
       while (await gh('GET', 'repos/' + site.repo + '/contents/' + draft))
         draft = 'drafts/' + slug + '-' + n++ + '.md';
       await gh('PUT', 'repos/' + site.repo + '/contents/' + draft,
-               { message: 'unpost: ' + slug + ' (moved to drafts)', content: file.content.replace(/\n/g, '') });
+               { message: 'unpost: ' + slug + ' (moved to drafts)', content: file.content.replace(/\n/g, ''), author: AUTHOR, committer: AUTHOR });
       await gh('DELETE', 'repos/' + site.repo + '/contents/posts/' + slug + '.md',
-               { message: 'unpost: ' + slug + ' (removed from posts)', sha: file.sha });
+               { message: 'unpost: ' + slug + ' (removed from posts)', sha: file.sha, author: AUTHOR, committer: AUTHOR });
       show('moved ' + slug + ' to drafts/ — rebuilding without it');
       lastSlug = null;
     } catch (e) { show('failed: ' + e.message); }
