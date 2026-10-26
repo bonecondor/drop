@@ -10,8 +10,8 @@
 <title>blog drop</title>
 <style>
 body { margin: 0; display: flex; min-height: 100vh; }
-@media (max-width: 700px) { body { flex-direction: column; } }
-.zone { flex: 1; padding: 2rem; box-sizing: border-box; }
+@media (max-width: 900px) { body { flex-direction: column; } }
+.zone { flex: 1; min-width: 0; padding: 2rem; box-sizing: border-box; }
 .zone.over { outline: 4px dashed currentColor; outline-offset: -12px; }
 textarea { width: 100%; min-height: 14rem; box-sizing: border-box;
   font: inherit; font-size: 1rem; background: inherit; color: inherit;
@@ -38,13 +38,18 @@ button { font: inherit; font-size: 1rem; margin-top: 0.5rem;
 #fringe a { color: #000; text-decoration-color: #9DFF20;
   text-decoration-thickness: 2px; }
 #fringe a:hover { background: #9DFF20; }
+
+#birb { background: #f2ede0; color: #25261f; font-family: Georgia, serif; }
+#birb h1 { font-weight: 600; font-size: 2.6rem; margin: 0 0 0.5rem; }
+#birb a { color: #4b5a3a; }
+#birb button { background: #4b5a3a; color: #f2ede0; border-color: #4b5a3a; }
 </style>
 </head>
 <body>
 
 <div class="zone" id="foid">
 <h1>FOID REPORT</h1>
-<p class="hint">write it, hit post. or drop a .txt / .md on this half.</p>
+<p class="hint">write it, hit post. or drop a .txt / .md on this third.</p>
 <textarea></textarea>
 <button>post</button>
 <p class="status"></p>
@@ -52,7 +57,7 @@ button { font: inherit; font-size: 1rem; margin-top: 0.5rem;
 
 <div class="zone" id="fringe">
 <h1>fringe report</h1>
-<p class="hint">write it, hit post. or drop a .txt / .md on this half.</p>
+<p class="hint">write it, hit post. or drop a .txt / .md on this third.</p>
 <textarea></textarea>
 <input placeholder="tags, comma separated (optional)" data-field="tags">
 <input placeholder="title (optional)" data-field="title">
@@ -60,19 +65,30 @@ button { font: inherit; font-size: 1rem; margin-top: 0.5rem;
 <p class="status"></p>
 <div id="token-box" class="hint">
 <span id="token-state">needs a github token to post.</span>
-<input id="token-input" placeholder="paste fine-grained token (contents read/write on the two blog repos)">
+<input id="token-input" placeholder="paste fine-grained token (contents read/write on the three blog repos)">
 <button id="token-save">save</button>
 <a href="#" id="token-clear" style="display:none; margin-left:0.5em">sign out</a>
 </div>
+</div>
+
+<div class="zone" id="birb">
+<h1>birb report</h1>
+<p class="hint">write it, hit post. or drop a .txt / .md on this third.</p>
+<textarea></textarea>
+<input placeholder="title (optional)" data-field="title">
+<input placeholder="subtitle (optional)" data-field="dek">
+<button>post</button>
+<p class="status"></p>
 </div>
 
 <script>
 const DEFAULT_SITES = {
   foid:   { repo: 'bonecondor/foid-report',   url: 'https://foid.report',   lower: false },
   fringe: { repo: 'bonecondor/fringe-report', url: 'https://fringe.report', lower: true  },
+  birb:   { repo: 'bonecondor/birb-report',   url: 'https://birb.report',   noTime: true },  // birb stamps times from the commit
 };
 // test override: localStorage.setItem('drop_repos', JSON.stringify({...}))
-const SITES = JSON.parse(localStorage.getItem('drop_repos') || 'null') || DEFAULT_SITES;
+const SITES = { ...DEFAULT_SITES, ...JSON.parse(localStorage.getItem('drop_repos') || 'null') };
 
 function token() { return localStorage.getItem('drop_token') || ''; }
 
@@ -124,7 +140,7 @@ function pickSlug(existing, origName, now) {
   return slug;
 }
 
-function compose(text, title, tags, time) {
+function compose(text, title, tags, time, dek) {
   const meta = {};
   const fm = text.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
   if (fm) {
@@ -136,7 +152,9 @@ function compose(text, title, tags, time) {
   }
   if (title) meta.title = title;
   if (tags) meta.tags = tags;
-  if (!meta.time) meta.time = time;
+  if (dek) meta.dek = dek;
+  if (time && !meta.time) meta.time = time;
+  if (!Object.keys(meta).length) return text.trim() + '\n';
   const lines = Object.entries(meta).map(([k, v]) => k + ': ' + v).join('\n');
   return '---\n' + lines + '\n---\n\n' + text.trim() + '\n';
 }
@@ -193,7 +211,8 @@ function wire(siteKey) {
       const slug = pickSlug(existing, origName, now);
       const body = compose(text, fields.title ? fields.title.value.trim() : '',
                            fields.tags ? fields.tags.value.trim() : '',
-                           timeStr(now, site.lower));
+                           site.noTime ? '' : timeStr(now, site.lower),
+                           fields.dek ? fields.dek.value.trim() : '');
       await gh('PUT', 'repos/' + site.repo + '/contents/posts/' + slug + '.md',
                { message: 'post: ' + slug, content: b64(body) });
       lastSlug = slug;
@@ -249,6 +268,7 @@ function wire(siteKey) {
 
 wire('foid');
 wire('fringe');
+wire('birb');
 
 const box = document.getElementById('token-box');
 const state = document.getElementById('token-state');
